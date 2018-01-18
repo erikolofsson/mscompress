@@ -37,18 +37,7 @@ extern char *version_string;
 #define F 16
 
 int
-getbyte (int f)
-{
-  unsigned char b;
-
-  /* Is there a better way?  */
-  if (read (f, &b, sizeof (b)) != 1)
-    return -1;
-  return b;
-}
-
-int
-expand (int in, char *inname, int out, char *outname)
+expand (FILE *in, char *inname, FILE *out, char *outname)
 {
   int bits, ch, i, j, len, mask;
   unsigned char *buffer;
@@ -59,7 +48,7 @@ expand (int in, char *inname, int out, char *outname)
   uint16_t reserved;
   uint32_t filesize;
 
-  if (read (in, &magic1, sizeof (magic1)) != sizeof (magic1))
+  if (fread (&magic1, 1, sizeof (magic1), in) != sizeof (magic1))
     {
       perror (inname);
       return -1;
@@ -71,19 +60,19 @@ expand (int in, char *inname, int out, char *outname)
   if (magic1 == 0x44445A53L)
 #endif
     {
-      if (read (in, &magic2, sizeof (magic2)) != sizeof (magic2))
+      if (fread (&magic2, 1, sizeof (magic2), in) != sizeof (magic2))
 	{
 	  perror (inname);
 	  return -1;
 	}
 
-      if (read (in, &reserved, sizeof (reserved)) != sizeof (reserved))
+      if (fread (&reserved, 1, sizeof (reserved), in) != sizeof (reserved))
 	{
 	  perror (inname);
 	  return -1;
 	}
 
-      if (read (in, &filesize, sizeof (filesize)) != sizeof (filesize))
+      if (fread (&filesize, 1, sizeof (filesize), in) != sizeof (filesize))
 	{
 	  perror (inname);
 	  return -1;
@@ -105,19 +94,19 @@ expand (int in, char *inname, int out, char *outname)
   if (magic1 == 0x4A41574BL)
 #endif
     {
-      if (read (in, &magic2, sizeof (magic2)) != sizeof (magic2))
+      if (fread (&magic2, 1, sizeof (magic2), in) != sizeof (magic2))
 	{
 	  perror (inname);
 	  return -1;
 	}
 
-      if (read (in, &magic3, sizeof (magic3)) != sizeof (magic3))
+      if (fread (&magic3, 1, sizeof (magic3), in) != sizeof (magic3))
 	{
 	  perror (inname);
 	  return -1;
 	}
 
-      if (read (in, &reserved, sizeof (reserved)) != sizeof (reserved))
+      if (fread (&reserved, 1, sizeof (reserved), in) != sizeof (reserved))
 	{
 	  perror (inname);
 	  return -1;
@@ -154,24 +143,24 @@ expand (int in, char *inname, int out, char *outname)
   i = N - F;
   while (1)
     {
-      bits = getbyte (in);
-      if (bits == -1)
+      bits = getc (in);
+      if (bits == EOF)
 	break;
 
       for (mask = 0x01; mask & 0xFF; mask <<= 1)
 	{
 	  if (!(bits & mask))
 	    {
-	      j = getbyte (in);
-	      if (j == -1)
+	      j = getc (in);
+	      if (j == EOF)
 		break;
-	      len = getbyte (in);
+	      len = getc (in);
 	      j += (len & 0xF0) << 4;
 	      len = (len & 15) + 3;
 	      while (len--)
 		{
 		  buffer[i] = buffer[j];
-		  if (write (out, &buffer[i], 1) != 1)
+		  if (putc (buffer[i], out) == EOF)
 		    {
 		      perror (outname);
 		      return -1;
@@ -184,11 +173,11 @@ expand (int in, char *inname, int out, char *outname)
 	    }
 	  else
 	    {
-	      ch = getbyte (in);
-	      if (ch == -1)
+	      ch = getc (in);
+	      if (ch == EOF)
 		break;
 	      buffer[i] = ch;
-	      if (write (out, &buffer[i], 1) != 1)
+	      if (putc (buffer[i], out) == EOF)
 		{
 		  perror (outname);
 		  return -1;
@@ -219,7 +208,7 @@ usage (char *progname)
 int
 main (int argc, char **argv)
 {
-  int in, out;
+  FILE *in, *out;
   char *argv0;
   int c;
   char name[0x100];
@@ -248,7 +237,7 @@ main (int argc, char **argv)
     {
       if (isatty (STDIN_FILENO))
 	usage (argv0);
-      if (expand (STDIN_FILENO, "STDIN", STDOUT_FILENO, "STDOUT") < 0)
+      if (expand (stdin, "STDIN", stdout, "STDOUT") < 0)
 	return 1;
       return 0;
     }
@@ -263,8 +252,8 @@ main (int argc, char **argv)
 	  continue;
 	}
 
-      in = open (argv[0], O_RDONLY);
-      if (in < 0)
+      in = fopen (argv[0], "r");
+      if (!in)
 	{
 	  perror (argv[0]);
 	  return 1;
@@ -273,16 +262,16 @@ main (int argc, char **argv)
       strcpy (name, argv[0]);
       name[strlen (name) - 1] = 0;
 
-      out = open (name, O_WRONLY | O_CREAT | O_EXCL, 0644);
-      if (out < 0)
+      out = fopen (name, "wbx");
+      if (!out)
 	{
 	  perror (name);
 	  return 1;
 	}
 
       expand (in, argv[0], out, name);
-      close (in);
-      close (out);
+      fclose (in);
+      fclose (out);
 
       argc--;
       argv++;

@@ -141,18 +141,7 @@ delete (int z)
 }
 
 int
-getbyte (int f)
-{
-  unsigned char b;
-
-  /* Is there a better way?  */
-  if (read (f, &b, sizeof (b)) != 1)
-    return -1;
-  return b;
-}
-
-int
-compress (int in, char *inname, int out, char *outname)
+compress (FILE *in, char *inname, FILE *out, char *outname)
 {
   int ch, i, run, len, match, size, mask;
   char buf[17];
@@ -171,7 +160,7 @@ compress (int in, char *inname, int out, char *outname)
     }
 
 
-  if (fstat (in, &st) < 0)
+  if (fstat (fileno(in), &st) < 0)
     {
       perror (inname);
       return -1;
@@ -191,27 +180,27 @@ compress (int in, char *inname, int out, char *outname)
 #endif
 
   /* Write header to the output file */
-  if (write (out, &magic1, sizeof (magic1)) != sizeof (magic1))
+  if (fwrite (&magic1, 1, sizeof (magic1), out) != sizeof (magic1))
     {
       perror (outname);
       free (buffer);
       return -1;
     }
-  if (write (out, &magic2, sizeof (magic2)) != sizeof (magic2))
-    {
-      perror (outname);
-      free (buffer);
-      return -1;
-    }
-
-  if (write (out, &magic3, sizeof (magic3)) != sizeof (magic3))
+  if (fwrite (&magic2, 1, sizeof (magic2), out) != sizeof (magic2))
     {
       perror (outname);
       free (buffer);
       return -1;
     }
 
-  if (write (out, &filesize, sizeof (filesize)) != sizeof (filesize))
+  if (fwrite (&magic3, 1, sizeof (magic3), out) != sizeof (magic3))
+    {
+      perror (outname);
+      free (buffer);
+      return -1;
+    }
+
+  if (fwrite (&filesize, 1, sizeof (filesize), out) != sizeof (filesize))
     {
       perror (outname);
       free (buffer);
@@ -226,7 +215,7 @@ compress (int in, char *inname, int out, char *outname)
   size = mask = 1;
   buf[0] = 0;
   i = N - F - F;
-  for (len = 0; len < F && (ch = getbyte (in)) != -1; len++)
+  for (len = 0; len < F && (ch = getc (in)) != EOF; len++)
     {
       buffer[i + F] = ch;
       i = (i + 1) % N;
@@ -234,7 +223,7 @@ compress (int in, char *inname, int out, char *outname)
   run = len;
   do
     {
-      ch = getbyte (in);
+      ch = getc (in);
       if (i >= N - F)
 	{
 	  delete (i + F - N);
@@ -246,7 +235,7 @@ compress (int in, char *inname, int out, char *outname)
 	  buffer[i + F] = ch;
 	}
       match = insert (i, run);
-      if (ch == -1)
+      if (ch == EOF)
 	{
 	  run--;
 	  len--;
@@ -269,7 +258,7 @@ compress (int in, char *inname, int out, char *outname)
 	    }
 	  if (!((mask += mask) & 0xFF))
 	    {
-	      if (write (out, buf, size) != size)
+	      if (fwrite (buf, 1, size, out) != size)
 		{
 		  perror (outname);
 		  free (buffer);
@@ -284,7 +273,7 @@ compress (int in, char *inname, int out, char *outname)
   while (len > 0);
 
   if (size > 1)
-    if (write (out, buf, size) != size)
+    if (fwrite (buf, 1, size, out) != size)
       {
 	perror (outname);
 	free (buffer);
@@ -310,7 +299,7 @@ usage (char *progname)
 int
 main (int argc, char **argv)
 {
-  int in, out;
+  FILE *in, *out;
   char *argv0;
   int c;
   char name[0x100];
@@ -351,26 +340,30 @@ main (int argc, char **argv)
 	  continue;
 	}
 
-      in = open (argv[0], O_RDONLY);
-      if (in < 0)
+      in = fopen (argv[0], "rb");
+      if (!in)
 	{
 	  perror (argv[0]);
 	  return 1;
 	}
 
+      setvbuf(in, NULL, _IOFBF, 16*1024);
+
       strcpy (name, argv[0]);
       strcat (name, "_");
 
-      out = open (name, O_WRONLY | O_CREAT | O_EXCL, 0644);
-      if (out < 0)
+      out = fopen (name, "wbx");
+      if (!out)
 	{
 	  perror (name);
 	  return 1;
 	}
 
+      setvbuf(out, NULL, _IOFBF, 16*1024);
+
       compress (in, argv[0], out, name);
-      close (in);
-      close (out);
+      fclose (in);
+      fclose (out);
 
       argc--;
       argv++;
